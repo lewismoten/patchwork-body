@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Patchwork body viewer</title>
+<!-- A rough three.js model of the modular body idea: click a part to read about it; Explode pulls modules apart. -->
+<style>
+  :root { --bg: #f4f1ea; --fg: #222; --panel: #fffdf8; --accent: #c0562f; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #15161a; --fg: #e8e6e1; --panel: #1f2026; --accent: #ef8a5a; } }
+  html, body { margin: 0; height: 100%; background: var(--bg); color: var(--fg); font: 15px/1.4 system-ui, sans-serif; }
+  #app { position: fixed; inset: 0; }
+  #ui { position: fixed; left: 16px; right: 16px; bottom: 16px; max-width: 420px; background: var(--panel);
+        border-radius: 10px; padding: 12px 14px; box-shadow: 0 2px 12px #0003; }
+  #ui h1 { font-size: 16px; margin: 0 0 6px; }
+  #ui p { margin: 0 0 8px; }
+  button { font: inherit; min-height: 32px; padding: 4px 12px; border-radius: 6px; border: 1px solid var(--accent);
+           background: transparent; color: var(--fg); cursor: pointer; }
+  button:focus-visible { outline: 3px solid var(--accent); outline-offset: 2px; }
+</style>
+<script type="importmap">
+{ "imports": {
+  "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+  "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+} }
+</script>
+</head>
+<body>
+<div id="app"></div>
+<div id="ui" role="region" aria-label="Part details">
+  <h1 id="name">Patchwork body (idea)</h1>
+  <p id="about">Click a part to read what it does. Drag to turn, scroll or pinch to zoom.</p>
+  <button id="explode" type="button" aria-pressed="false">Explode</button>
+</div>
+<script type="module">
+import * as THREE from 'three';
+import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
+const parts = [
+  // name, about, size [w,h,d], position, color, explode offset
+  ['Wheeled base', 'Low and wide so a large dog can\'t tip it. Two driven wheels and a caster; batteries sit here to keep the weight low. Swappable for a tread module on the same hip mount.', [1.6, 0.35, 1.4], [0, 0.25, 0], 0x5b6b7a, [0, -0.6, 0]],
+  ['Battery bay A', 'Hot-swap 4S 18650 pack with its own BMS and fuse. Either bay can be pulled while the other carries the load.', [0.5, 0.25, 0.9], [-0.42, 0.55, 0], 0x3f8f5a, [-0.9, 0, 0]],
+  ['Battery bay B', 'The second hot-swap pack. An ideal-diode power path runs the robot from whichever pack is fuller.', [0.5, 0.25, 0.9], [0.42, 0.55, 0], 0x3f8f5a, [0.9, 0, 0]],
+  ['Torso / power module', 'Carries raw pack voltage to every mount and can supply ready-made 5 V and 12 V to simple attachments. Hosts the shared bus.', [1.0, 1.0, 0.8], [0, 1.2, 0], 0xc0562f, [0, 0, 0]],
+  ['Head (pan-tilt camera)', 'First module idea: two steppers turn a camera so it can look around the room. Works on its own over Wi-Fi.', [0.7, 0.55, 0.6], [0, 2.0, 0], 0xd9b44a, [0, 0.7, 0]],
+  ['Shoulder mount (left)', 'Standard mount: same pattern and magnetic pogo connector as every other mount. Arms, hands, tools.', [0.25, 0.25, 0.25], [-0.65, 1.45, 0], 0x8a6fb3, [-0.6, 0, 0]],
+  ['Shoulder mount (right)', 'Standard mount for an arm or tool. Anyone can build a better hand to fit it.', [0.25, 0.25, 0.25], [0.65, 1.45, 0], 0x8a6fb3, [0.6, 0, 0]],
+  ['Backpack', 'Back mount for extras: more battery, storage, or an AC inverter module on its own keyed connector.', [0.8, 0.8, 0.35], [0, 1.2, -0.6], 0x4a7fb3, [0, 0, -0.9]],
+];
+
+const app = document.getElementById('app');
+const scene = new THREE.Scene();
+const dark = matchMedia('(prefers-color-scheme: dark)').matches;
+scene.background = new THREE.Color(dark ? 0x15161a : 0xf4f1ea);
+const camera = new THREE.PerspectiveCamera(45, innerWidth / innerHeight, 0.1, 100);
+camera.position.set(3.2, 2.6, 3.6);
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+app.appendChild(renderer.domElement);
+const controls = new OrbitControls(camera, renderer.domElement);
+controls.target.set(0, 1.1, 0);
+controls.enableDamping = true;
+scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.1));
+const sun = new THREE.DirectionalLight(0xffffff, 1.2); sun.position.set(3, 5, 2); scene.add(sun);
+const grid = new THREE.GridHelper(6, 12, 0x888888, 0x888888); grid.material.opacity = 0.25; grid.material.transparent = true; scene.add(grid);
+
+const meshes = parts.map(([name, about, size, pos, color, off]) => {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(...size), new THREE.MeshStandardMaterial({ color, roughness: 0.6 }));
+  m.position.set(...pos);
+  m.userData = { name, about, home: new THREE.Vector3(...pos), off: new THREE.Vector3(...off) };
+  scene.add(m);
+  return m;
+});
+for (const x of [-0.6, 0.6]) {
+  const w = new THREE.Mesh(new THREE.CylinderGeometry(0.28, 0.28, 0.15, 24), new THREE.MeshStandardMaterial({ color: 0x222222 }));
+  w.rotation.z = Math.PI / 2; w.position.set(x * 1.45, 0.28, 0.35); scene.add(w);
+}
+
+let exploded = false, t = 0;
+const btn = document.getElementById('explode');
+btn.addEventListener('click', () => { exploded = !exploded; btn.setAttribute('aria-pressed', String(exploded)); btn.textContent = exploded ? 'Assemble' : 'Explode'; });
+
+const ray = new THREE.Raycaster(), ptr = new THREE.Vector2();
+let selected = null;
+renderer.domElement.addEventListener('pointerup', (e) => {
+  ptr.set((e.clientX / innerWidth) * 2 - 1, -(e.clientY / innerHeight) * 2 + 1);
+  ray.setFromCamera(ptr, camera);
+  const hit = ray.intersectObjects(meshes)[0];
+  if (selected) selected.material.emissive.setHex(0x000000);
+  selected = hit ? hit.object : null;
+  if (selected) selected.material.emissive.setHex(0x332211);
+  document.getElementById('name').textContent = selected ? selected.userData.name : 'Patchwork body (idea)';
+  document.getElementById('about').textContent = selected ? selected.userData.about : 'Click a part to read what it does. Drag to turn, scroll or pinch to zoom.';
+});
+addEventListener('resize', () => { camera.aspect = innerWidth / innerHeight; camera.updateProjectionMatrix(); renderer.setSize(innerWidth, innerHeight); });
+
+renderer.setAnimationLoop(() => {
+  t += ((exploded ? 1 : 0) - t) * 0.12;
+  for (const m of meshes) m.position.copy(m.userData.home).addScaledVector(m.userData.off, t);
+  controls.update();
+  renderer.render(scene, camera);
+});
+</script>
+</body>
+</html>
